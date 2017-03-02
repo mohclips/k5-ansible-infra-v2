@@ -1,0 +1,24 @@
+---
+- mail:
+      from: 'Provisioning of {{ item.name }} <root>'
+      to: '{{ mailer_group }}'
+      cc: ''
+      subject: 'Server {{ item.name }} has been provisioned'
+      body: |
+        We are happy to report that server {{ item.name }} was successfully provisioned.
+
+        Here are some interesting characteristics of the server:
+
+        - Private IP address: {{ item.private_v4 }}
+        - Public IP address: {{ item.public_v4 }}
+        - SSH Key: {{ item.key_name }}
+
+        - Created: {{ item.created }}
+        - Flavor: {{ item.flavor.id }}
+
+        Have fun!
+
+        Yours truly,
+
+        Ansible
+  delegate_to: 127.0.0.1

@@ -1,0 +1,107 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+#
+# Create a 3-tier Network Infrastructure on Fujitsu K5
+#
+# v1.0 - 02 Jan 2017 - Nicholas Cross / Mohclips - initial release
+# v2.0 - 27 Feb 2017 - Nicholas Cross / Mohclips - refactor for group_vars
+#
+
+########################################################################################################
+#
+# PLAY 1 - Create proxy compute instance on K5
+#
+########################################################################################################
+- name: "Create proxy compute instance"
+ 
+  hosts: proxy
+
+  become: no
+  become_user: root
+  become_method: sudo
+
+  gather_facts: no
+
+  serial: 10  # do 10 hosts at a time
+
+
+  tasks:
+    - block:
+      # we pull in our vars from everything in the 'vars' folder
+      - include_vars: 
+          dir: "vars"
+          depth: 1
+
+      - debug:
+          msg:
+            - "Building {{ inventory_hostname }} on {{ server.network }}"
+
+      # create a Jump sever
+      # this is done separately to all other servers so that the jump server
+      #  can be re-created each night for security purposes - modern cloud best practice
+
+      # note that we delegate all of this to the localhost !
+      # this is important as we are communicating with the cloud API not the actual jump server host (yet)
+      - name: "Create compute instance"
+        include: includes/create-generic-fixedip-compute.yml
+        delegate_to: 127.0.0.1
+     
+      tags: t_provison_servers
+
+    - name: "Wait for the server to open a listening port - 15sec delay"
+      wait_for:
+        state: started
+        host: "{{ ansible_host }}"
+        port: "{{ ansible_port }}"    # see inventory
+        delay: 15
+        timeout: 120
+        search_regex: "{{ server.remote_port_check_regex }}"
+      delegate_to: "{{ groups.jumpservers.0 }}"  # TODO: 8/10 could try harder
+
+    # TODO: add a pause here maybe?
+
+    - pause:
+        seconds: 15
+        #prompt: "Allow a little longer for SSH to become available?"
+
+    - include: includes/watch-cloud-init-log.yml
+
+########################################################################################################
+#
+# PLAY #2
+#
+# Now we are going to be communicating with the actual compute instance
+# As we needed to make sure the server is built first, then we can install the software via a role/etc
+#
+########################################################################################################
+
+- name: "Install Software"
+
+  hosts: proxy
+  gather_facts: yes
+
+  become: yes
+  become_user: root
+  become_method: sudo
+
+  tasks:
+
+    - block:
+      - name: "Ubuntu - Update server - make sure it is currently patched to date"
+        apt:
+          upgrade: dist
+          update_cache: yes
+
+      when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+
+    
+    - block:
+      - name: "RHEL - Update server - make sure it is currently patched to date"
+        yum:
+          name: '*'
+          state: latest
+
+      when: ansible_distribution == 'CentOS' or ansible_distribution == 'Red Hat Enterprise Linux'
+
+

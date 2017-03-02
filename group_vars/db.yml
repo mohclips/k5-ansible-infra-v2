@@ -1,0 +1,13 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+count: 2
+name: "nx-1b-db"
+image: "{{ k5_images.ubuntu_1404.name }}"
+flavor: "S-1"
+volume_size: "{{ k5_images.ubuntu_1404.min_size }}"
+network: "nx-network-1b-dblan"
+ansible_user: "ubuntu"
+ansible_connection: "ssh"
+security_group: "nx-az1b-dblan"
+

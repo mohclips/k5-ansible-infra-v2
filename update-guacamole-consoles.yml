@@ -1,0 +1,68 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+- name: "Update the Guacamole server from the OpenStack Dynamic Inventory"
+
+  gather_facts: no
+
+  hosts: jumpservers
+
+
+  vars:
+    images:
+      "Ubuntu": "ssh"
+      "CentOS": "ssh"
+      "Red": "ssh"
+      "SUSE": "ssh"
+      "Windows": "rdp"
+    ports:
+      "ssh": 22
+      "rdp": 3389
+
+    db:
+      root_password: "Secr3tDBP4$$1077"
+      name: guacamole_db
+      user: guacamole_user
+      user_pass: "SomeP6$$1289%%"
+
+
+  tasks:
+#
+#    - name: "Get various interesting bits"
+#      debug:
+#        msg:
+#          - "Inventory hostname: {{ inventory_hostname }}"
+#          - "Hostname: {{ hostvars[inventory_hostname].openstack.name }}"
+#          - "Metadata Build: {{ hostvars[inventory_hostname].openstack.metadata.image }}"
+#          - "Metadata Group: {{ hostvars[inventory_hostname].openstack.metadata.group }}"
+#          - "K5 Compute Host: {{ hostvars[inventory_hostname]['openstack']['OS-EXT-SRV-ATTR:host'] }}"
+#          - "Created on: {{ hostvars[inventory_hostname].openstack.created }}"
+#          - "Flavor Id: {{ hostvars[inventory_hostname].openstack.flavor.id }}"
+#          - "ssh_key: {{ hostvars[inventory_hostname].openstack.key_name }}"
+#          - "Network: {% for k,v in hostvars[inventory_hostname].openstack.networks.iteritems() %} {{k}} {{v}} {% endfor %}"
+#       
+#
+#    - name: "Create the SQL template" 
+#      debug:
+#        msg:
+#          - "{{ item }}"
+#          - "{{ hostvars[item].openstack.private_v4 }}"
+#          - "{{ hostvars[inventory_hostname].openstack.metadata.image.split(' ')[0] }}"
+#          - "{{ images[hostvars[inventory_hostname].openstack.metadata.image.split(' ')[0]] }}"
+#      with_items: "{{ groups['all'] }}"
+#      #when: "{{ 'jump' in inventory_hostname }}"
+#
+    - name: "Copy SQL template to jumpserver {{ inventory_hostname}}"
+      template:
+        src: templates/guacamole_connections.sql.j2
+        dest: /tmp/guacamole_connections.sql
+        mode: 0644
+
+    - name: "Import new hosts to Guacamole console"
+      mysql_db: 
+        name: "{{ db.name }}" 
+        state: import
+        target: /tmp/guacamole_connections.sql
+        login_password: "{{ db.root_password }}"
+      become: yes
+

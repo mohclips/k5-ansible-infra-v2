@@ -1,0 +1,117 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+#
+# Set these here or overwrite
+#
+region: "uk-1"  # but define the regions vars below
+az: "uk-1b"
+prefix: "nx2"
+
+class_b: "10.70"  # override this with -e class_b=10.31
+
+
+
+#
+# Change SSH keys
+#
+
+regions:
+  "uk-1":
+    "uk-1a":
+      ssh_keypair: "NickCross1a"
+      ext_net: "inf_az1_ext-net02"  
+    "uk-1b":
+      ssh_keypair: "NickCross-uk1b"
+      ext_net: "inf_az2_ext-net01" 
+
+##################################################################################################
+#
+# Really you shoudn't need to change anything below, unless you know what you are doing.
+#
+
+az_code: "{{ az }}"
+az_ext_net: "{{ regions[region][az]['ext_net'] }}" 
+az_ssh_keypair: "{{ regions[region][az]['ssh_keypair'] }}"
+   
+#
+# REMEMBER:
+#   Security Groups are applied at the "port" level.  This is the port that the device NIC is
+# attached to.  So it is like having a mini-firewall attached BEFORE each device NIC.
+#
+#   These are all about SOURCE IPs, and nothing about the destination.  Your destination is controlled by
+# were you apply the SG to. Which port (device/NIC) you attach the rule to.
+#
+
+security_groups:
+# this is now generated in the playbook
+#  - name: "{{ prefix }}-{{ az_code }}-jumpbox"
+#    description: "Rules for the Proxy Lan Jump Box only"
+#    rules:
+#      # source here SHOULD BE your source device, NOT any old device on the internet
+#      - { comment: "any_guacamole_http", source: "0.0.0.0/0", protocol: "tcp", port: "8080", direction: "ingress" }
+#      - { comment: "any_guacamole_https", source: "0.0.0.0/0", protocol: "tcp", port: "8443", direction: "ingress" }
+#      - { comment: "any_ssh", source: "0.0.0.0/0", protocol: "tcp", port: "22", direction: "ingress" }
+#      - { comment: "any_icmp", source: "0.0.0.0/0", protocol: "icmp", port: "-1", direction: "ingress" }
+#      - { comment: "jumpbox_ssh", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "22", direction: "ingress" }
+#
+  - name: "{{ prefix }}-{{ az_code }}-proxylan"
+    description: "Rules for the Proxy Lan but not the Jump Box"
+    rules:
+      - { comment: "any_80", source: "0.0.0.0/0", protocol: "tcp", port: "80", direction: "ingress" }
+      - { comment: "any_443", source: "0.0.0.0/0", protocol: "tcp", port: "443", direction: "ingress" }
+      - { comment: "proxylan_icmp", source: "{{ class_b }}.1.0/0", protocol: "icmp", port: "-1", direction: "ingress" }
+      - { comment: "jumpbox_ssh", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "22", direction: "ingress" }
+      - { comment: "jumpbox_rdp", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "3389", direction: "ingress" }
+    
+  - name: "{{ prefix }}-{{ az_code }}-appslan"
+    description: "Rules for the Apps Lan"
+    rules: 
+      - { comment: "jumpbox_ssh", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "22", direction: "ingress" }
+      - { comment: "proxylan_80", source: "{{ class_b }}.1.0/0", protocol: "tcp", port: "80", direction: "ingress" }
+      - { comment: "proxylan_443", source: "{{ class_b }}.1.0/0", protocol: "tcp", port: "443", direction: "ingress" }
+      - { comment: "appslan_icmp", source: "{{ class_b }}.2.0/0", protocol: "icmp", port: "-1", direction: "ingress" }
+      - { comment: "appslan_docker", source: "{{ class_b }}.2.0/0", protocol: "tcp", port: "2377", direction: "ingress" }
+      - { comment: "proxylan_icmp", source: "{{ class_b }}.1.0/0", protocol: "icmp", port: "-1", direction: "ingress" }
+      - { comment: "jumpbox_ssh", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "22", direction: "ingress" }
+      - { comment: "jumpbox_rdp", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "3389", direction: "ingress" }
+            
+  - name: "{{ prefix }}-{{ az_code }}-dblan"
+    description: "Rules for the DB Lan"
+    rules: 
+      - { comment: "jumpbox_ssh", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "22", direction: "ingress" }
+      - { comment: "appslan_mysql", source: "{{ class_b }}.2.0/0", protocol: "tcp", port: "3306", direction: "ingress" }
+      - { comment: "dblan_mysql", source: "{{ class_b }}.3.0/0", protocol: "tcp", port: "3306", direction: "ingress" }
+      - { comment: "proxylan_icmp", source: "{{ class_b }}.2.0/0", protocol: "icmp", port: "-1", direction: "ingress" }
+      - { comment: "dblan_icmp", source: "{{ class_b }}.3.0/0", protocol: "icmp", port: "-1", direction: "ingress" }
+      - { comment: "jumpbox_ssh", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "22", direction: "ingress" }
+      - { comment: "jumpbox_rdp", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "3389", direction: "ingress" }
+ 
+networks: 
+  - name: "{{ prefix }}-network-{{ az_code }}-proxylan"
+    external: False
+    subnet: "{{ prefix }}-subnet-{{ az_code }}-proxylan"
+    cidr: "{{ class_b }}.1.0/24"
+    dns: [ 8.8.8.8, 8.8.4.4 ]
+    gateway_ip: "{{ class_b }}.1.254"
+  - name: "{{ prefix }}-network-{{ az_code }}-appslan"
+    external: False
+    subnet : "{{ prefix }}-subnet-{{ az_code }}-appslan"
+    dns: [ 8.8.8.8, 8.8.4.4 ]
+    cidr: "{{ class_b }}.2.0/24"
+    gateway_ip: "{{ class_b }}.2.254"
+  - name: "{{ prefix }}-network-{{ az_code }}-dblan"
+    external: False
+    subnet: "{{ prefix }}-subnet-{{ az_code }}-dblan"
+    dns: [ 8.8.8.8, 8.8.4.4 ]
+    cidr: "{{ class_b }}.3.0/24"
+    gateway_ip: "{{ class_b }}.3.254"
+  
+router:
+  name: "{{ prefix }}-ext-router-{{ az_code }}"
+  subnets: 
+    - "{{ networks.0.subnet }}"
+    - "{{ networks.1.subnet }}"
+    - "{{ networks.2.subnet }}"
+  ext_net: "{{ az_ext_net }}" 
+

@@ -1,0 +1,72 @@
+# all
+
+# we can define the fixed_ips here
+nx2-uk-1b-pxy01 ansible_host=10.70.1.11
+nx2-uk-1b-pxy02 ansible_host=10.70.1.12
+nx2-uk-1b-pxy03 ansible_host=10.70.1.13
+
+
+nx2-uk-1b-dkr-ngn01 ansible_host=10.70.2.11
+nx2-uk-1b-dkr-ngn02 ansible_host=10.70.2.12
+nx2-uk-1b-dkr-ngn03 ansible_host=10.70.2.13
+nx2-uk-1b-dkr-ngn04 ansible_host=10.70.2.14
+nx2-uk-1b-dkr-ngn05 ansible_host=10.70.2.15
+
+
+[jumpservers]
+nx2-uk-1b-jumpserver 
+
+# see group_vars folder
+#[jumpservers:vars]
+#ansible_user=ubuntu
+#ansible_connection=ssh
+#ansible_port=22
+#ansible_ssh_private_key_file=NickCross-1b.pem
+
+#####################################################
+[proxy]
+nx2-uk-1b-pxy[01:03]
+
+# see group_vars folder
+#[proxy:vars]
+#ansible_user=k5user
+#ansible_connection=ssh
+#ansible_port=22
+ 
+
+#####################################################
+[docker_swarm_engine]
+nx2-uk-1b-dkr-ngn[01:05]
+
+[docker_swarm_engine:vars]
+ansible_user=ubuntu 
+ansible_connection=ssh
+ansible_port=22
+
+[docker_swarm_manager]
+nx2-uk-1b-dkr-ngn01
+
+[docker_swarm_manager:vars]
+ansible_user=ubuntu 
+ansible_connection=ssh
+ansible_port=22
+
+[docker_swarm_worker]
+nx2-uk-1b-dkr-ngn[02:05]
+
+[docker_swarm_worker:vars]
+ansible_user=ubuntu 
+ansible_connection=ssh
+ansible_port=22
+
+#####################################################
+[apps]
+
+[apps:children]
+docker_swarm_engine
+
+
+#####################################################
+[db]
+
+

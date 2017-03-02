@@ -1,0 +1,88 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+  - name: "Authenticate to K5"
+    # use openrc environment variables
+    k5_auth:
+    register: k5_auth_reg
+
+  - name: "Delete server if it exists - but only if explicitly required with e_delete_server=true"
+    os_server:
+      name: "{{ inventory_hostname }}"
+      state: absent
+      region_name: "{{ region }}"
+      availability_zone: "{{ az_code }}"
+      wait: yes
+      timeout: 120
+    when: e_delete_server | default("false") | match("true")
+
+  - name: "Create port / fixed IP for server using K5"
+    k5_create_port:
+      state: present
+      name: "{{ inventory_hostname }}_port"
+      network_name: "{{ server.network }}"
+      subnet_name: "{{ server.subnet }}"
+      availability_zone: "{{ az_code }}"
+      fixed_ip: "{{ ansible_host }}"  # this is picked up from the inventory file
+      security_groups: 
+        - "{{ server.security_group }}" 
+      k5_auth: "{{ k5_auth_reg.k5_auth_facts }}"
+    # TODO:  only set when 'server.fixed_ip' is set
+
+  - name: "Load in Openstack Userdata"
+    command: cat "{{ user_data_file }}"
+    register: cat_user_data
+    delegate_to: 127.0.0.1
+    ignore_errors: yes
+
+  - set_fact:
+      user_data: "#!/bin/bash"
+    when: cat_user_data|failed
+ 
+  - set_fact:
+      user_data: "{{ cat_user_data.stdout }}"
+    when: cat_user_data|success
+
+
+  - name: "Create the server"
+  # autoip must be no - k5 doesnt allow it at build time
+    os_server:
+      name: "{{ inventory_hostname }}"
+      state: present
+      region_name: "{{ region }}"
+      availability_zone: "{{ az_code }}"
+      image: "{{ server.image }}"
+      flavor: "{{ server.flavor }}"
+      key_name: "{{ az_ssh_keypair }}"
+      #network: "{{ networks.0.name }}"  # not needed if we supply nics (ie. pre created ports)
+      nics:
+        - "port-name={{ inventory_hostname }}_port"
+      #security_groups: [ "nx-az1b-jumpbox" ] # not needed if we supply nics (ie. pre created ports)
+      volume_size: "{{ server.volume_size }}"
+      boot_from_volume: yes
+      terminate_volume: yes
+      auto_ip: no
+      meta:
+        group: "{{ server.group }}"
+        key_name: "{{ az_ssh_keypair }}" 
+        image: "{{ server.image }}"
+      userdata: "{{ user_data }}"
+    register: server_data
+
+  #
+  # now we have a running server, save the details to a local inventory for later use
+  #  - as we dont have dynamic inventory at this point
+  #
+## for DHCP
+#  - name: "Add to the running inventory the instance created above"
+#    add_host: 
+#      hostname: "{{ inventory_hostname }}"
+#      groupname: "{{ server.group }}"
+#      ansible_host: "{{ server_data.openstack.accessIPv4 }}"
+
+
+
+
+
+
+

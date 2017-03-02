@@ -1,0 +1,24 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+server:
+  image: "{{ k5_images.centos_72.name }}"
+  flavor: "S-1"
+  volume_size: "{{ k5_images.centos_72.min_size }}"
+#  name: "{{ prefix }}-{{ az_code }}-jumpserver"
+  fixed_ip: "10.70.1.253"   # probably should be defined elsewhere and referenced.
+  security_group: "{{ prefix }}-{{ az_code }}-jumpbox"
+  group: "jumpservers"
+  needs_public_ip: yes
+  remote_port_check_regex: "OpenSSH"
+
+ansible_user: "k5user"
+ansible_connection: "ssh"
+ansible_port: 22
+ansible_ssh_private_key_file: "~/.ssh/NickCross-uk1b.pem"
+
+guacamole_web:
+  admin_username: "my_jumpserver_adminuser"
+  admin_password: "Spec ial Jum p%Ser ver&1989--"
+
+ 

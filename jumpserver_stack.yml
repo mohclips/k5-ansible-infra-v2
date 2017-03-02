@@ -1,0 +1,58 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+#
+# Create a 3-tier Network Infrastructure on Fujitsu K5
+#
+# v1.0 - 02 Jan 2017 - Nicholas Cross / Mohclips - initial release
+# v2.0 - 27 Feb 2017 - Nicholas Cross / Mohclips - refactor for group_vars
+#
+
+########################################################################################################
+#
+# PLAY 1 - Create jumpserver compute instance on K5
+#
+########################################################################################################
+- name: "Create jumpserver compute instance"
+  
+  hosts: jumpservers
+
+  become: no
+  become_user: root
+  become_method: sudo
+
+  gather_facts: no
+
+  tasks:
+    # we pull in our vars from everything in the 'vars' folder
+    - include_vars: 
+        dir: "vars"
+        depth: 1
+
+    - debug:
+        msg:
+          - "Building {{ inventory_hostname }} on {{ networks.0.name }}"
+
+    # early test for correct become/sudo password
+    - name: "Early test for local sudo access"
+      command: echo "SUDO test"
+      delegate_to: 127.0.0.1
+      become: yes
+
+    # create a Jump sever
+    # this is done separately to all other servers so that the jump server
+    #  can be re-created each night for security purposes - modern cloud best practice
+
+    - name: "Load in Openstack Userdata"
+      command: cat userdata/jumpserver
+      register: user_data
+      delegate_to: 127.0.0.1
+
+    # note that we delegate all of this to the localhost !
+    # this is important as we are communicating with the cloud API not the actual jump server host (yet)
+    - name: "Create Jump box"
+      include: includes/create-jumpserver-compute.yml
+      delegate_to: 127.0.0.1
+      tags: t_create_compute
+
+

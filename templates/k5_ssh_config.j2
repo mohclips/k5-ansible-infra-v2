@@ -1,0 +1,27 @@
+#
+# ssh config to allow pass thru from the jump server to the other lans
+#
+{# 
+# .0/24 hardcoded - this should be done a different way ipaddr("host")?
+# 1.1.1.0/24 => 1.1.1.*
+#}
+# as this is an external ssh_config file, we need to re-reference it in the ProxyCommand - otherwise it misses the jumphost config
+Host {% for net in networks %} {{ net.cidr|replace(".0/24","") }}.* {% endfor %} 
+  ProxyCommand ssh -F k5_ssh_config -W %h:%p {{ server_floatingip }}
+  # User should be set by ansible_user in the inventory
+  # IdentityFile must match the endpoint host, so you may need to expand this template if you used multiple ssh_keys (best practice)
+#  User {{ ansible_user }}	# mixed OS estates need this to be removed as this will break manual logins 
+  IdentityFile ~/.ssh/{{ az_ssh_keypair }}.pem 
+  UserKnownHostsFile=/dev/null
+  StrictHostKeyChecking=no
+
+Host {{ server_floatingip }} {{ inventory_hostname }}
+  User {{ ansible_user }} 
+  IdentityFile ~/.ssh/{{ az_ssh_keypair }}.pem 
+  ControlMaster auto
+  ControlPath ~/.ssh/ansible-mux-%r@%h:%p
+  ControlPersist 5m
+  UserKnownHostsFile=/dev/null
+  StrictHostKeyChecking=no
+
+# User and IdentityFile can be read from group_vars - but this stops you logging in manually using this file (while debugging)

@@ -1,0 +1,34 @@
+--
+-- SQL to insert connections into Guacamole
+--
+
+USE guacamole_db;
+
+DROP PROCEDURE IF EXISTS guac_insert;
+
+DELIMITER $$
+CREATE PROCEDURE guac_insert(IN conn_name VARCHAR(100), IN hostname VARCHAR(100), IN proto VARCHAR(10), IN conn_port INT)
+	BEGIN
+	IF NOT EXISTS (SELECT * FROM guacamole_connection WHERE connection_name = conn_name) THEN
+	    INSERT INTO guacamole_connection (connection_name, protocol) VALUES (conn_name, proto);
+	    SET @id = LAST_INSERT_ID();
+	    INSERT INTO guacamole_connection_parameter VALUES (@id, 'hostname', hostname);
+	    INSERT INTO guacamole_connection_parameter VALUES (@id, 'port', conn_port);
+	    SELECT conn_name, 'inserted';
+	ELSE
+	    SELECT conn_name, 'already exists';
+	END IF;
+END $$
+
+/* reset the delimiter to the default ; */
+DELIMITER ;
+
+/* call our procedure to insert the hosts */
+CALL guac_insert('guacamole localhost','127.0.0.1','ssh',22);
+{% for host in groups['all'] %}
+{% set IP =  hostvars[host].openstack.private_v4 %}
+{% set IMAGE = hostvars[host].openstack.metadata.image.split(' ')[0] | default("Ubuntu") %}
+{% set PROTO = images[IMAGE] | default("ssh") %}
+CALL guac_insert('{{ host }}','{{ IP }}','{{ PROTO }}',{{ ports[PROTO]}});
+{% endfor %}
+

@@ -1,0 +1,100 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+#
+# Build HAProxy Load Balancer compute instance
+#
+
+      - block:
+        - name: "Delete the old proxy if it exists"
+          os_server:
+            name: "{{ item }}"
+            state: absent
+            region_name: "{{ region }}"
+            availability_zone: "{{ az_code }}"
+            wait: yes
+            timeout: 120
+          with_sequence: start=1 end="{{ servers.proxy.count }}" format="{{ servers.proxy.name }}%02x"
+          register: k5_server
+          async: 7200
+          poll: 0
+
+        - name: Wait for instance deletion to complete
+          async_status: jid={{ item.ansible_job_id }}
+          register: k5_jobs
+          until: k5_jobs.finished
+          retries: 300
+          delay: 5
+          with_items: "{{ k5_server.results }}"
+
+        tags: delete_proxy_servers
+
+
+      - name: "Create the proxy server"
+      # autoip must be no - k5 doesnt allow it at build time
+        os_server:
+          name: "{{ item }}"
+          state: present
+          region_name: "{{ region }}"
+          availability_zone: "{{ az_code }}"
+          image: "{{ servers.proxy.image }}"
+          flavor: "{{ servers.proxy.flavor }}"
+          key_name: "{{ region.ssh_keypair }}"
+          network: "{{ servers.proxy.network }}"  # not needed if we supply nics (ie. pre created ports)
+          security_groups: [ "{{ servers.proxy.security_group }}" ] # not needed if we supply nics (ie. pre created ports)
+          volume_size: "{{ servers.proxy.volume_size }}"
+          boot_from_volume: yes
+          terminate_volume: yes
+          auto_ip: no
+          meta:
+            group: "proxy"
+            key_name: "{{ region.ssh_keypair }}" 
+            image: "{{ servers.proxy.image }}"
+
+        register: k5_server
+        with_sequence: start=1 end="{{ servers.proxy.count }}" format="{{ servers.proxy.name }}%02x"
+        async: 7200
+        poll: 0
+ 
+      - name: Wait for instance creation to complete
+        async_status: jid={{ item.ansible_job_id }}
+        register: k5_jobs
+        until: k5_jobs.finished
+        retries: 300
+        delay: 10
+        with_items: "{{ k5_server.results }}"
+
+      
+      - name: "Get OpenStack facts on the servers we just built"
+        os_server_facts:
+          server: "{{ servers.proxy.name }}*"
+        register: k5_server
+
+      - debug: msg="{{ item.name }} = {{ item.private_v4 }}"
+        with_items: "{{ k5_server.ansible_facts.openstack_servers }}"
+
+#"
+#      - fail: msg="stop"
+
+      - block:
+
+        - name: "add to the running inventory the instance created above"
+          add_host: 
+            hostname: "{{ item.name }}"
+            groupname: "proxy"
+          with_items: "{{ k5_server.ansible_facts.openstack_servers }}"
+
+#        - name: "Add the newly created instance to the local host group (located inside the directory)"
+#          local_action: lineinfile 
+#            dest="./inventory/proxy" 
+#            regexp="{{ item.name }}"
+#            insertafter="[proxy]" 
+#            line="{{ item.name }} ansible_host={{ item.private_v4 }} ansible_user={{ servers.proxy.ansible_user }} ansible_connection={{ servers.proxy.ansible_connection }}"
+#          with_items: "{{ k5_server.ansible_facts.openstack_servers }}"
+##"
+
+        - include: includes/mail-provision-success.yml
+          with_items: "{{ k5_server.ansible_facts.openstack_servers }}"
+
+        when: k5_server.ansible_facts.openstack_servers is defined
+

@@ -1,0 +1,25 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+#    - name: "who am i"
+#      debug: 
+#        msg:
+#          - "inventory_hostname is {{inventory_hostname}}"
+#          - "ansible_hostname is {{ ansible_hostname }}"
+#          - "{{ hostvars[inventory_hostname] }}"
+#
+- name: "watch cloud-init logfile for finish"
+  wait_for:
+    path: /var/log/cloud-init-output.log
+    search_regex: "Cloud-init v. .*? finished at "
+    delay: 1
+    timeout: 600 
+#      register: log
+
+#    - debug: var=log
+
+
+
+
+
+

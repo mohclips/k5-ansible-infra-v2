@@ -1,0 +1,16 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+# who we gonna tell?
+mailer_group: "mohclips@gmail.com, nicholas.cross@uk.fujitsu.com"
+
+# images on k5
+k5_images:
+  ubuntu_1404: 
+    name: "Ubuntu Server 14.04 LTS (English) 02" # updated to 02 in Jan2017
+    min_size: 5
+  
+  centos_72:
+    name: "CentOS 7.2 64bit (English) 02" # updated to 02 in Jan2017
+    min_size: 30
+  

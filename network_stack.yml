@@ -1,0 +1,173 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+#
+# Create a 3-tier Network Infrastructure on Fujitsu K5
+#
+# v1.0 - 02 Jan 2017 - Nicholas Cross / Mohclips - initial release
+#
+
+########################################################################################################
+# PLAY 1 - create network infrastructure and jumpserver compute instance
+########################################################################################################
+- name: "Create 3-tier network K5 infrastructure"
+
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  # batch - run 10 tasks at a time when looped- useful when creating bulk compute instances
+  serial: 10
+
+  vars:
+    # use the include_vars instead to read vars/
+
+    #
+    # FLAGS: tags to turn on/off features - for faster testing ;)
+    #
+    # t_secgrp
+    # t_network
+    # t_router
+    # t_jumpsvr
+
+    K5_DEBUG: "{{ lookup('env','K5_DEBUG')|default(False) }}"
+
+  tasks:
+########################################################################################################
+    - block:
+      # we pull in our vars from everything in the 'vars' folder
+      - include_vars: 
+          dir: "vars"
+          depth: 1
+
+      - name: "Get my external IP"
+        ipify_facts:
+        connection: local
+
+      - debug: 
+          msg:
+            - "Region: {{ region }}"
+            - "Availability Zone: {{ az }}"
+            - "prefix: {{ prefix }}"
+            - "az_code: {{ az_code }}"
+            - "az_ext_net: {{ az_ext_net }}" 
+            - "az_ssh_keypair: {{ az_ssh_keypair }}"
+            - "My Public facting IP: {{ ipify_public_ip }}"
+
+
+      # we create a fact that contains the new public IP firewall rules
+      # there have been a lot of hacker attempts on the IP address space - so we are careful to only allow our IP to the Jump server
+      - set_fact:
+          jump_security_groups:
+            - name: "{{ prefix }}-{{ az_code }}-jumpbox"
+              description: "Rules for the Proxy Lan Jump Box only"
+              rules:
+                # source here SHOULD BE your source device, NOT any old device on the internet
+                # our proxies 62.60.8.100 and 62.60.8.150 
+                - { comment: "guacamole_http", source: "62.60.8.100/32", protocol: "tcp", port: "8080", direction: "ingress" }
+                - { comment: "guacamole_https", source: "62.60.8.150/32", protocol: "tcp", port: "8443", direction: "ingress" }
+                - { comment: "guacamole_http", source: "{{ ipify_public_ip }}/32", protocol: "tcp", port: "8080", direction: "ingress" }
+                - { comment: "guacamole_https", source: "{{ ipify_public_ip }}/32", protocol: "tcp", port: "8443", direction: "ingress" }
+                - { comment: "ssh", source: "{{ ipify_public_ip }}/32", protocol: "tcp", port: "22", direction: "ingress" }
+                - { comment: "any_icmp", source: "0.0.0.0/0", protocol: "icmp", port: "-1", direction: "ingress" }
+                - { comment: "jumpbox_ssh", source: "{{ class_b }}.1.253/32", protocol: "tcp", port: "22", direction: "ingress" }
+     
+      # then join it to the current security_groups 
+      - set_fact:
+          security_groups: "{{ jump_security_groups + security_groups }}"
+
+#      - debug: var=security_groups
+ 
+
+      #
+      # Authenticate to K5
+      #
+      - name: "Authenticate to K5"
+        # use openrc environment variables
+        k5_auth:
+        register: k5_auth_reg
+        
+      - debug: var=k5_auth_reg.k5_auth_facts.auth_token
+      tags: always
+
+########################################################################################################
+    - block:
+      # create Security Groups and rules
+      #   Ok, the following code is a little complex, but there is a reason for this.
+      # It makes it a heck of a lot easier to write the vars above in a way that most engineers will
+      # recognise as firewall rules.
+      #   You should be able to lift all this code and copy/paste it into yours with no changes below.
+      # All you need to do is change the above vars.
+      #   The cool stuff in Ansible is the 'with_subelements' loop, which allows for a directed nested loop.
+
+      - name: "Create a new security group"
+        os_security_group:
+        # https://docs.ansible.com/ansible/os_security_group_module.html
+          state: present
+          name: "{{ item.0.name }}"
+          description: "{{ item.0.description }}"
+        with_subelements: 
+          - "{{ security_groups }}"
+          - rules
+
+      - name: "Create a new SG rules"
+        os_security_group_rule:
+          # https://docs.ansible.com/ansible/os_security_group_rule_module.html
+          security_group: "{{ item.0.name }}"
+          remote_ip_prefix: "{{ item.1.source }}"
+          protocol: "{{ item.1.protocol }}"
+          port_range_min: "{{ item.1.port }}"
+          port_range_max: "{{ item.1.port }}"
+          direction: "{{ item.1.direction }}"
+        with_subelements: 
+          - "{{ security_groups }}"
+          - rules
+
+      tags: t_secgrp
+########################################################################################################
+
+########################################################################################################
+    - block:
+
+      # create Networks and Subnets
+      # we use an include to loop over a number of tasks at once that use common values
+      - name: "Create Networks and Subnets"
+        include: includes/create-network.yml
+        with_items: "{{ networks }}"
+        loop_control:
+          loop_var: outer_item
+
+      tags: t_network
+
+########################################################################################################
+    - block: 
+
+      - name: "Create K5 Router {{ router.name }}"
+        # we need to use specific K5 API calls here to utilise the AZ, which os_router does not handle
+        k5_create_router:
+          name: "{{ router.name }}" 
+          state: present
+          availability_zone: "{{ az_code }}"
+          k5_auth: "{{ k5_auth_reg.k5_auth_facts }}"
+
+      - name: "Router - connect to EXT_NET {{ az_ext_net}}"
+        # back to using the standard os_router module - this has to be a separate call to add EXT_NET as defined in the K5 API anyway
+        # https://docs.ansible.com/ansible/os_router_module.html
+        os_router:
+          state: present
+          name: "{{ router.name }}"
+          network: "{{ az_ext_net }}"
+
+
+      # link the Network and Subnets together on one Router
+      - name: "Add Network and Subnets to Router"
+        # back to using the standard os_router module - this has to be a separate call to add subnets as defined in the K5 API anyway
+        # https://docs.ansible.com/ansible/os_router_module.html
+        os_router:
+          state: present
+          name: "{{ router.name }}"
+          interfaces:
+            "{{ router.subnets }}"
+
+      tags: t_router
+

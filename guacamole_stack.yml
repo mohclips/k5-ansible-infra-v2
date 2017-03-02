@@ -1,0 +1,77 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+#
+# Create a 3-tier Network Infrastructure on Fujitsu K5
+#
+# v1.0 - 02 Jan 2017 - Nicholas Cross / Mohclips - initial release
+# v2.0 - 27 Feb 2017 - Nicholas Cross / Mohclips - refactor for group_vars
+#
+
+
+########################################################################################################
+#
+# PLAY #2
+#
+# Now we are going to be communicating with the actual jumpserver
+# As we needed to make sure the server is built first, then we can install the Guacamole software via a role
+#
+########################################################################################################
+
+- name: "Install guacamole via a role"
+
+  hosts: jumpservers
+  gather_facts: yes
+
+  become: yes
+  become_user: root
+  become_method: sudo
+
+  pre_tasks:
+
+    - debug: msg="wait a few mins for software install to complete or view /var/log/cloud-init-output.log"
+    - include: includes/watch-cloud-init-log.yml
+
+  roles: 
+    - { role: "guacamole-jumpserver", tags: [ "t_jumpsvr", "t_guacamole" ] }
+
+
+  tasks:
+    # IMPORTANT: we flush the handlers in the role here, otherwise services are not restarted properly
+    - meta: flush_handlers
+
+    - pause:
+        prompt: "Tomcat takes at least 12 secs to start up"
+        seconds: 15
+
+    # great couple of little tasks to check a service is running
+    - name: Check if service is running
+      command: systemctl status tomcat
+      ignore_errors: yes
+      changed_when: false
+      register: service_status
+
+    - name: Report status of tomcat
+      fail:
+        msg: |
+          Service is not running.
+          Output of 'systemctl status':
+          {{ service_status.stdout }}
+          {{ service_status.stderr }}
+      when: service_status | failed
+
+    - name: "Get public IP"
+      ipify_facts:
+
+    - name: "wait_for_tomcat on https://{{ ipify_public_ip }}:8443/"
+      uri:
+        url: "https://{{ ipify_public_ip }}:8443/"
+        validate_certs: no
+      register: result
+      until: result['status']|default(0) == 200
+      retries: 30
+      delay: 3
+      delegate_to: 127.0.0.1
+
+#    - debug: var=result
+

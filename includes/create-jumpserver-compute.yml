@@ -1,0 +1,137 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+  - name: "Authenticate to K5"
+    # use openrc environment variables
+    k5_auth:
+    register: k5_auth_reg
+
+  - debug: var=k5_auth_reg.k5_auth_facts.auth_token
+
+  - name: "Delete {{ inventory_hostname }} if it exists - but only if explicitly required with e_delete_server=true"
+    os_server:
+      name: "{{ inventory_hostname }}"
+      state: absent
+      region_name: "{{ region }}"
+      availability_zone: "{{ az_code }}"
+      wait: yes
+      timeout: 120
+    when: e_delete_server | default("false") | match("true")
+
+  - name: "Create port / fixed IP for server using K5"
+    k5_create_port:
+      state: present
+      name: "{{ inventory_hostname }}_port"
+      network_name: "{{ networks.0.name }}"
+      subnet_name: "{{ networks.0.subnet }}"
+      availability_zone: "{{ az_code }}"
+      fixed_ip: "{{ server.fixed_ip }}"
+      security_groups: 
+        - "{{ server.security_group }}" 
+      k5_auth: "{{ k5_auth_reg.k5_auth_facts }}"
+    # TODO:  only set when 'server.fixed_ip' is set
+
+  - name: "Create the server"
+  # autoip must be no - k5 doesnt allow it at build time
+    os_server:
+      name: "{{ inventory_hostname }}"
+      state: present
+      region_name: "{{ region }}"
+      availability_zone: "{{ az_code }}"
+      image: "{{ server.image }}"
+      flavor: "{{ server.flavor }}"
+      key_name: "{{ az_ssh_keypair }}"
+      #network: "{{ networks.0.name }}"  # not needed if we supply nics (ie. pre created ports)
+      nics:
+        - "port-name={{ inventory_hostname }}_port"
+      #security_groups: [ "nx-az1b-jumpbox" ] # not needed if we supply nics (ie. pre created ports)
+      volume_size: "{{ server.volume_size }}"
+      boot_from_volume: yes
+      terminate_volume: yes
+      auto_ip: no
+      meta:
+        group: "{{ server.group }}"
+        key_name: "{{ az_ssh_keypair }}" 
+        image: "{{ server.image }}"
+      userdata: "{{ user_data.stdout }}"
+    register: server_data
+
+  - debug: 
+      msg:
+        - "Current Public IPv4 Address: {{ server_data.server.public_v4 }}"
+
+  - block:
+    # but k5 does actually allow assignment of a floating (public) afterward initial creation
+    # this is by design on k5, that it needs to be a 2-part process
+    # TODO: find doc link to this 'feature'
+    - name: "Assign a floating IP"
+      k5_assign_floating_ip:
+        # https://docs.ansible.com/ansible/os_floating_ip_module.html
+        # bug: https://github.com/ansible/ansible/issues/19620
+        server: "{{ inventory_hostname }}"
+        fixed_ip: "{{ server.fixed_ip }}" # local address to NAT to
+        ext_network: "{{ router.ext_net }}"
+        k5_auth: "{{ k5_auth_reg.k5_auth_facts }}"
+      register: floating_ip_reg
+      delegate_to: 127.0.0.1
+    # TODO: only set if "server.needs_public_ip==yes"
+
+    - fail: msg="Floating ip assignment failed"
+      when: floating_ip_reg.changed == false
+      # TODO: not sure if this is actually needed
+
+    # get our new public IP    
+    - set_fact: 
+        server_floatingip: "{{ floating_ip_reg.k5_floating_ip_facts.floating_ip_address }}"
+
+    when: "{{ server_data.server.public_v4 == '' }}"
+
+    # get our current public IP - if not created by k5_assign_floating_ip
+  - set_fact:
+      server_floatingip: "{{ server_data.server.public_v4 }}"
+    when: "{{ server_data.server.public_v4 != '' }}"
+
+  #
+  # now we have a running server, save the details to a local inventory for later use
+  #
+  - block:
+    # set a fact to use the external IP in the template later on
+    - name: "add to the running inventory the instance created above"
+      add_host: 
+        hostname: "{{ inventory_hostname }}"
+        groupname: "{{ server.group }}"
+        ansible_host: "{{ server_floatingip }}"
+
+    - name: "Create/update local ssh_config for ssh server pass thru"
+      template:
+        src: ./templates/k5_ssh_config.j2
+        dest: ./k5_ssh_config
+      delegate_to: localhost    # not needed, but to make this obvious
+      when: inventory_hostname in groups['jumpservers']
+
+    - name: "Add server ip to /etc/hosts"
+      lineinfile:
+        dest: /etc/hosts
+        regexp: '{{ inventory_hostname }}'
+        line: '{{ server_floatingip }} {{ inventory_hostname }}'
+        state: present
+      become: yes
+
+    - name: "Wait for {{ inventory_hostname }} to listen on port 22"
+      wait_for:
+        state: started
+        host: "{{ server_floatingip }}"
+        port: "{{ ansible_port }}"
+        timeout: 120
+        search_regex: "{{ server.remote_port_check_regex }}"
+
+    - debug: msg="**** {{ inventory_hostname }} is LIVE and ready to use @ {{ server_floatingip }} ****"
+   
+    when: server_floatingip is defined
+
+
+
+
+
+
+
