@@ -1,0 +1,7 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+- src: atosatto.docker-swarm
+  path: roles/
+  
+

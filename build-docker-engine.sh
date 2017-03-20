@@ -12,16 +12,12 @@ fi
 ARGS=$@
 echo ARGS: $ARGS
 
-./build-network.sh
-check_exitcode
+if [ ! -e ./openstack_dynamic_inventory.py ] ; then
+	echo "Openstack Dynamic Inventory Missing, Exiting..."
+	exit 1
+fi	
 
-./build-jumpserver.sh
-check_exitcode
-
-./build-proxy.sh
-check_exitcode
-
-./build-docker-engine.sh
+ansible-playbook -i inventory/ docker_engine_stack.yml $ARGS
 check_exitcode
 
 

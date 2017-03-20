@@ -1,0 +1,195 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+#
+# Create a 3-tier Network Infrastructure on Fujitsu K5
+#
+# v1.0 - 02 Jan 2017 - Nicholas Cross / Mohclips - initial release
+# v2.0 - 27 Feb 2017 - Nicholas Cross / Mohclips - refactor for group_vars
+#
+
+########################################################################################################
+#
+# PLAY 1 - Create proxy compute instance on K5
+#
+########################################################################################################
+- name: "Create proxy compute instance"
+ 
+  hosts: docker_engine
+
+  become: no
+  become_user: root
+  become_method: sudo
+
+  gather_facts: no
+
+  serial: 10  # do 10 hosts at a time
+
+
+  tasks:
+    - block:
+      # we pull in our vars from everything in the 'vars' folder
+      - include_vars: 
+          dir: "vars"
+          depth: 1
+
+      - debug:
+          msg:
+            - "Building {{ inventory_hostname }} on {{ server.network }}"
+
+      # create a Jump sever
+      # this is done separately to all other servers so that the jump server
+      #  can be re-created each night for security purposes - modern cloud best practice
+
+      # note that we delegate all of this to the localhost !
+      # this is important as we are communicating with the cloud API not the actual jump server host (yet)
+      - name: "Create compute instance"
+        include: includes/create-generic-fixedip-compute.yml
+        delegate_to: 127.0.0.1
+
+      - name: "Wait for the server to open a listening port - 15sec delay"
+        wait_for:
+          state: started
+          host: "{{ ansible_host }}"
+          port: "{{ ansible_port }}"    # see inventory
+          delay: 15
+          timeout: 120
+          search_regex: "{{ server.remote_port_check_regex }}"
+        delegate_to: "{{ groups.jumpservers.0 }}"  # TODO: 8/10 could try harder
+
+      - name: "Allow a little longer for SSH service to become available?"
+        pause:
+          seconds: 15
+
+      - include: includes/watch-cloud-init-log.yml
+
+      # end block 
+      tags: t_provison_servers
+
+########################################################################################################
+#
+# PLAY #2
+#
+# Now we are going to be communicating with the actual compute instance
+# As we needed to make sure the server is built first, then we can install the software via a role/etc
+#
+########################################################################################################
+
+- name: "Install Software"
+
+  hosts: docker_engine
+  gather_facts: yes
+
+  become: yes
+  become_user: root
+  become_method: sudo
+
+  roles:
+     - { role: "atosatto.docker-swarm", 
+        skip_engine: False,
+        skip_group: False,
+        skip_swarm: False,
+        skip_docker_py: False,
+        docker_admin_users: [ "vagrant" ],
+        docker_swarm_port: 2377,
+        docker_swarm_interface: "eth0",
+        tags: t_install_swarm
+      }
+    
+  tasks:
+    - block:
+      - name: "Ubuntu - Update server - make sure it is currently patched to date"
+        apt:
+          upgrade: dist
+          update_cache: yes
+
+      # end block
+      when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+
+    - name: "Update DOCKER OPTS"
+      lineinfile:
+        dest: "/etc/default/docker"
+        regexp: "^DOCKER_OPTS"
+        line: 'DOCKER_OPTS="--log-driver=syslog --log-opt syslog-facility=daemon --log-opt tag=forgottoset"'
+      notify:
+        - "restart docker"
+
+    - name: "Add logstash ip to /etc/hosts"
+      lineinfile:
+        dest: /etc/hosts
+        regexp: '^172.30.5.65'   # TODO needs new IP
+        line: '172.30.5.65 logstash'
+        state: present
+        owner: root
+        group: root
+        mode: 0644
+      notify: 
+        - "restart rsyslog"
+
+
+    - name: "remove TCP logstash from rsyslog.conf"
+      lineinfile:
+        dest: /etc/rsyslog.conf
+        regexp: '@@logstash'
+        state: absent
+      notify: 
+        - "restart rsyslog"
+
+    - name: "Add UDP logstash to rsyslog.conf"
+      lineinfile:
+        dest: /etc/rsyslog.conf
+        regexp: '\*\.\* \@logstash'
+        line: '*.* @logstash:60514'
+        state: present
+        owner: root
+        group: root
+        mode: 0644
+      notify: 
+        - "restart rsyslog"
+
+    - name: "Allow repeats in syslog"
+      lineinfile:
+        dest: /etc/rsyslog.conf
+        regexp: '^\$RepeatedMsgReduction '
+        line: '$RepeatedMsgReduction off'
+        state: present
+        owner: root
+        group: root
+        mode: 0644
+      notify: 
+        - "restart rsyslog"
+
+    - name: "Remove other automation tools - muahahaha"
+      apt:
+        name: "{{ item }}"
+        state: absent
+        autoremove: yes
+      with_items:
+        - "puppet"
+        - "chef"
+
+    - name: "Send a test syslog message"
+      command: /bin/true
+      notify:
+        - "Test Syslog"
+
+  handlers:
+  # See notify in glossary - Handlers are run in the order they are listed, not in the order that they are notified.
+    - name: "restart rsyslog"
+      service:
+        name: "rsyslog"
+        state: restarted
+        enabled: yes
+
+    - name: "Test Syslog"
+      command: logger "Test syslog from Ansible"
+
+ 
+    - name: "restart docker"
+      service:
+        name: "docker"
+        state: restarted
+        enabled: yes
+ 
+
+
