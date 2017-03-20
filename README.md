@@ -4,6 +4,9 @@ This git repository contains examples of how to create infrastructure as code on
 
 Basically, in my day job I help people with Intrafructure as Code, automation and other such things.  I wrote these modules to help people access K5 more readily.  Plus it's a bit of fun. ;)
 
+
+This is a living piece of code, i expect it will never be finished :)
+
 # Cloning
 
 When you clone make sure you use the --recursive parameter to pull the sub-module down as well.
@@ -22,6 +25,16 @@ you need to clone this from my git repo.
 
 This will enable you to install the Apache Guacamole HTML5 jumpserver - highly recommended
 
+You will also need to address the ```ansible-requirements.yml``` to install the Docker Swarm.
+
+## Pipelining
+
+Note that I have used Ansible Pipelining mode.  This enables a much faster build.   This also means that the NOTTY function in sudoers needs to be turned off, for the user that Ansible uses.   This is done at build time of each compute instance, see the ```user_data/``` folder for more.
+
+## SSH Proxy Access
+
+Note that SSH Proxy is utilised by ProxyCommand function.  This enables Ansible to proxy it's connectivity through the Jump Server to any of the non-Public facing compute instances.
+For this same reason, that is why CentOS is used as the Jump Server, where as everything else is on Ubuntu.  This is due to a kernel issue in Ubuntu 14.04 that breaks the SSH mutex and you loose connectivity. (not good and as yet not fixed by Canonical).
 
 # Usage
 
@@ -39,9 +52,9 @@ If I can find a better way of doing this, I will. But at present this is the bes
 
 Then:
 
-Update ```vars/all.yml``` with your infrastructure settings.
+Update ```vars/all.yml``` and ```inventory\all``` with your infrastructure settings.
 
-And run the playbook  ```provision_infra.yml```
+And run the bash shell script ```build-all.yml```
 
 ## Building things
 
