@@ -27,7 +27,12 @@ DELIMITER ;
 CALL guac_insert('guacamole localhost','127.0.0.1','ssh',22);
 {% for host in groups['all'] %}
 {% set IP =  hostvars[host].openstack.private_v4 %}
-{% set IMAGE = hostvars[host].openstack.metadata.image.split(' ')[0] | default("Ubuntu") %}
+{% if  hostvars[host].openstack.metadata.image is defined %}
+{%   set IMAGE = hostvars[host].openstack.metadata.image.split(' ')[0] | default("Ubuntu") %}
+{% else %}
+-- we didnt build this one - it belongs to someonelse
+{%   set IMAGE = "Ubuntu" %}
+{% endif %}
 {% set PROTO = images[IMAGE] | default("ssh") %}
 CALL guac_insert('{{ host }}','{{ IP }}','{{ PROTO }}',{{ ports[PROTO]}});
 {% endfor %}
