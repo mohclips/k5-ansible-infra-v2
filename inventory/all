@@ -11,6 +11,7 @@ nx2-uk-1b-dkr-ngn02 ansible_host=10.70.2.12
 nx2-uk-1b-dkr-ngn03 ansible_host=10.70.2.13
 nx2-uk-1b-dkr-ngn04 ansible_host=10.70.2.14
 nx2-uk-1b-dkr-ngn05 ansible_host=10.70.2.15
+nx2-uk-1b-dkr-ngn06 ansible_host=10.70.2.16
 
 nx2-uk-1b-db01 ansible_host=10.70.3.11
 nx2-uk-1b-db02 ansible_host=10.70.3.12
@@ -31,13 +32,17 @@ nx2-uk-1b-pxy[01:03]
 
 #####################################################
 [docker_engine]
-nx2-uk-1b-dkr-ngn[01:05]
+nx2-uk-1b-dkr-ngn[01:06]
 
-[docker_manager]
+# This group can only contain one server, it will become the primary
+# server in the cluster. Once the cluster is up and functioning then
+# it will re-elect its own primary, but this primary is needed for
+# bootstrapping.
+[docker_swarm_manager]
 nx2-uk-1b-dkr-ngn01
 
-[docker_worker]
-nx2-uk-1b-dkr-ngn[02:05]
+[docker_swarm_worker]
+nx2-uk-1b-dkr-ngn[02:06]
 
 #####################################################
 [apps]

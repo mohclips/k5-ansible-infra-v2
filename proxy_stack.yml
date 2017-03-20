@@ -46,26 +46,25 @@
       - name: "Create compute instance"
         include: includes/create-generic-fixedip-compute.yml
         delegate_to: 127.0.0.1
-     
+
+      - name: "Wait for the server to open a listening port - 15sec delay"
+        wait_for:
+          state: started
+          host: "{{ ansible_host }}"
+          port: "{{ ansible_port }}"    # see inventory
+          delay: 15
+          timeout: 120
+          search_regex: "{{ server.remote_port_check_regex }}"
+        delegate_to: "{{ groups.jumpservers.0 }}"  # TODO: 8/10 could try harder
+
+      - name: "Allow a little longer for SSH service to become available?"
+        pause:
+          seconds: 15
+
+      - include: includes/watch-cloud-init-log.yml
+
+      # end block 
       tags: t_provison_servers
-
-    - name: "Wait for the server to open a listening port - 15sec delay"
-      wait_for:
-        state: started
-        host: "{{ ansible_host }}"
-        port: "{{ ansible_port }}"    # see inventory
-        delay: 15
-        timeout: 120
-        search_regex: "{{ server.remote_port_check_regex }}"
-      delegate_to: "{{ groups.jumpservers.0 }}"  # TODO: 8/10 could try harder
-
-    # TODO: add a pause here maybe?
-
-    - pause:
-        seconds: 15
-        #prompt: "Allow a little longer for SSH to become available?"
-
-    - include: includes/watch-cloud-init-log.yml
 
 ########################################################################################################
 #
@@ -93,6 +92,13 @@
           upgrade: dist
           update_cache: yes
 
+      - name: "Ubuntu - Install HA proxy"
+        apt:
+          name: haproxy
+          state: latest
+        notify: restart_proxy
+
+      # end block
       when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
 
     
@@ -102,6 +108,73 @@
           name: '*'
           state: latest
 
+      - name: "RHEL - Install epel"
+        apt:
+          name: epel-release
+          state: latest
+
+      - name: "RHEL - Install haproxy"
+        yum:
+          name: nginx
+          state: latest
+        notify: restart_proxy
+          
+      # end block
       when: ansible_distribution == 'CentOS' or ansible_distribution == 'Red Hat Enterprise Linux'
 
 
+#    - name: "Copy reverse proxy template to server"
+#      template:
+#        src: "templates/nginx-reverse-proxy.conf.j2"
+#        dest: "/etc/nginx/conf.d/nginx-reverse-proxy.conf"
+#        mode: 0644
+#      notify: restart_haproxy
+
+  
+    #
+    # SSL cert creation
+    #
+    - name: "Check if SSL cert has been created locally"
+      stat:
+        path: "{{ ssl_cert.crt_path }}"
+      register: ssl_cert_test
+      delegate_to: 127.0.0.1
+      become: no
+      run_once: yes
+
+    - name: "create Self-Signed SSL cert locally"
+      command: openssl req -new -out "{{ ssl_cert.crt_path }}" -newkey rsa:4096 -sha256 -nodes -keyout "{{ ssl_cert.key_path }}" -x509 -days "{{ ssl_cert.days }}" -subj "{{ ssl_cert.subj }}"
+      delegate_to: 127.0.0.1
+      become: no
+      run_once: yes
+      when: not ssl_cert_test.stat.exists
+
+
+    #
+    # SSL cert copy
+    #
+    - name: "make sure SSL certificate is existing and secured - remotely"
+      copy:
+        src:    '{{ item.src }}'
+        dest:   '{{ item.path }}'
+        owner:  root
+        group:  root
+        mode:   '{{ item.mode }}'
+      with_items:
+        - src:  '{{ ssl_cert.crt_path }}'
+          path: '/etc/haproxy/server.crt'
+          mode: '0644'
+        - src:  '{{ ssl_cert.key_path }}'
+          path: '/etc/haproxy/server.key'
+          mode: '0600'
+
+
+
+
+  handlers:
+    
+    - name: restart_proxy
+      service:
+        name: haproxy
+        state: restarted
+        enabled: yes
