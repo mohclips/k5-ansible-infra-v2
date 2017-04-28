@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euf -o pipefail
+exec 1> >(logger -s -t $(basename $0)) 2>&1 
 cat>>/etc/sudoers.d/95-ansible-pipelining<<EOF
 #
 # Enable pipelining mode and sudo availability for Ansible
