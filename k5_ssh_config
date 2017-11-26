@@ -1,0 +1,23 @@
+#
+# ssh config to allow pass thru from the jump server to the other lans
+#
+# as this is an external ssh_config file, we need to re-reference it in the ProxyCommand - otherwise it misses the jumphost config
+Host  10.70.1.*  10.70.2.*  10.70.3.*  
+  ProxyCommand ssh -F k5_ssh_config -W %h:%p 62.60.47.10
+  # User should be set by ansible_user in the inventory
+  # IdentityFile must match the endpoint host, so you may need to expand this template if you used multiple ssh_keys (best practice)
+#  User k5user	# mixed OS estates need this to be removed as this will break manual logins 
+  IdentityFile ~/.ssh/NickCross-uk1b.pem 
+  UserKnownHostsFile=/dev/null
+  StrictHostKeyChecking=no
+
+Host 62.60.47.10 nx2-uk-1b-jumpserver
+  User k5user 
+  IdentityFile ~/.ssh/NickCross-uk1b.pem 
+  ControlMaster auto
+  ControlPath ~/.ssh/ansible-mux-%r@%h:%p
+  ControlPersist 5m
+  UserKnownHostsFile=/dev/null
+  StrictHostKeyChecking=no
+
+# User and IdentityFile can be read from group_vars - but this stops you logging in manually using this file (while debugging)
